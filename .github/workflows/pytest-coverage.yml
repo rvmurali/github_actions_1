@@ -1,0 +1,65 @@
+name: Python Tests with Coverage Report
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Give the workflow the necessary permissions
+permissions:
+  contents: write
+  checks: write
+  pull-requests: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch all history for all branches and tags
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Run tests with pytest and generate coverage report
+      run: |
+        pytest --junitxml=pytest.xml \
+              --cov=calculator \
+              --cov-report=term-missing:skip-covered \
+              --cov-report=xml:coverage.xml \
+              tests/ | tee pytest-coverage.txt
+    
+    - name: Generate HTML coverage report
+      run: |
+        pytest --cov=calculator --cov-report=html:htmlcov tests/
+    
+    - name: Archive HTML coverage report
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report-html
+        path: htmlcov/
+        retention-days: 7
+    
+    - name: Comment on PR with coverage report
+      if: github.event_name == 'pull_request'  # Only run on pull requests
+      uses: MishaKav/pytest-coverage-comment@main
+      with:
+        pytest-coverage-path: ./pytest-coverage.txt
+        pytest-xml-coverage-path: ./coverage.xml
+        junitxml-path: ./pytest.xml
+        title: 'Calculator Project Coverage Report'
+        badge-title: 'Code Coverage'
+        hide-badge: false
+        hide-report: false
+        create-new-comment: false
+        report-only-changed-files: true
