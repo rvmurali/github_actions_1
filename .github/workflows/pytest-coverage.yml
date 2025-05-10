@@ -1,4 +1,4 @@
-name: Python Tests with Coverage Report
+name: Run Python Tests on EC2
 
 on:
   push:
@@ -6,60 +6,43 @@ on:
   pull_request:
     branches: [ main ]
 
-# Give the workflow the necessary permissions
-permissions:
-  contents: write
-  checks: write
-  pull-requests: write
-
 jobs:
-  test:
+  deploy-and-test:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v3
-      with:
-        fetch-depth: 0  # Fetch all history for all branches and tags
-    
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    
-    - name: Run tests with pytest and generate coverage report
-      run: |
-        pytest --junitxml=pytest.xml \
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run commands on EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo apt update
+            sudo apt install -y python3.10 python3.10-venv python3.10-distutils curl unzip
+            curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10
+
+            # Clone repo (or pull latest if exists)
+            if [ ! -d "myproject" ]; then
+              git clone https://github.com/${{ github.repository }}.git myproject
+            else
+              cd myproject && git pull
+            fi
+
+            cd myproject
+
+            # Install dependencies
+            python3.10 -m pip install --upgrade pip
+            if [ -f requirements.txt ]; then python3.10 -m pip install -r requirements.txt; fi
+
+            # Run tests
+            python3.10 -m pytest --junitxml=pytest.xml \
               --cov=calculator \
               --cov-report=term-missing:skip-covered \
               --cov-report=xml:coverage.xml \
               tests/ | tee pytest-coverage.txt
-    
-    - name: Generate HTML coverage report
-      run: |
-        pytest --cov=calculator --cov-report=html:htmlcov tests/
-    
-    - name: Archive HTML coverage report
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-report-html
-        path: htmlcov/
-        retention-days: 7
-    
-    - name: Comment on PR with coverage report
-      if: github.event_name == 'pull_request'  # Only run on pull requests
-      uses: MishaKav/pytest-coverage-comment@main
-      with:
-        pytest-coverage-path: ./pytest-coverage.txt
-        pytest-xml-coverage-path: ./coverage.xml
-        junitxml-path: ./pytest.xml
-        title: 'Calculator Project Coverage Report'
-        badge-title: 'Code Coverage'
-        hide-badge: false
-        hide-report: false
-        create-new-comment: false
-        report-only-changed-files: true
+
+            python3.10 -m pytest --cov=calculator --cov-report=html:htmlcov tests/
