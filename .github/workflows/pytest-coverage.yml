@@ -21,28 +21,37 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            sudo apt update
-            sudo apt install -y python3.10 python3.12-venv python3.12-distutils curl unzip
-            curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.12
 
-            # Clone repo (or pull latest if exists)
+            # Update repo & install dependencies (if needed)
+            sudo apt update
+            sudo apt install -y python3.12-venv git
+
+            # Set up virtual environment (best practice with Python 3.12)
+            python3.12 -m venv ~/venv
+            source ~/venv/bin/activate
+
+            # Clone repo (or pull latest)
             if [ ! -d "myproject" ]; then
-              git clone https://github.com/${{ github.repository }}.git myproject
+              git clone https://github.com/rvmurali/github_actions_1.git myproject
             else
               cd myproject && git pull
             fi
 
             cd myproject
 
-            # Install dependencies
-            python3.10 -m pip install --upgrade pip
-            if [ -f requirements.txt ]; then python3.10 -m pip install -r requirements.txt; fi
+            # Install pip inside venv (PEP 668 compliant)
+            curl -sS https://bootstrap.pypa.io/get-pip.py | python
 
-            # Run tests
-            python3.10 -m pytest --junitxml=pytest.xml \
-              --cov=calculator \
-              --cov-report=term-missing:skip-covered \
-              --cov-report=xml:coverage.xml \
-              tests/ | tee pytest-coverage.txt
+            # Install project dependencies
+            pip install --upgrade pip
+            if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-            python3.10 -m pytest --cov=calculator --cov-report=html:htmlcov tests/
+            # Run tests with coverage
+            pytest --junitxml=pytest.xml \
+                  --cov=calculator \
+                  --cov-report=term-missing:skip-covered \
+                  --cov-report=xml:coverage.xml \
+                  tests/ | tee pytest-coverage.txt
+
+            # Generate HTML coverage report
+            pytest --cov=calculator --cov-report=html:htmlcov tests/
