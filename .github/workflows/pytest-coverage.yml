@@ -1,0 +1,97 @@
+name: Python Tests with Coverage Report on EC2
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Give the workflow the necessary permissions
+permissions:
+  contents: write
+  checks: write
+  pull-requests: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest # Orchestrate from GitHub Actions runner
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch all history for all branches and tags
+
+    - name: Set up Python 3.10 (locally on runner)
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies (locally on runner - might not be strictly necessary but good practice)
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: SSH and Run Tests on EC2
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        port: 22 # Adjust if your SSH port is different
+        script: |
+          # Navigate to the project directory on EC2
+          cd /home/${{ secrets.EC2_USER }}/github_actions_1
+
+          # Update package lists
+          sudo apt update
+
+          # Install Python 3 and pip using the system package manager
+          sudo apt install -y python3 python3-pip
+
+          # Install pytest and coverage using pip for the system Python
+          sudo python3 -m pip install --upgrade pytest coverage
+
+          # Install project dependencies
+          if [ -f requirements.txt ]; then python3 -m pip install -r requirements.txt; fi
+
+          # Run tests with pytest and generate coverage report
+          python3 -m pytest --junitxml=pytest.xml \
+                 --cov=. \
+                 --cov-report=term-missing:skip-covered \
+                 --cov-report=xml:coverage.xml \
+                 tests/ | tee pytest-coverage.txt
+
+          # Generate HTML coverage report
+          python3 -m pytest --cov=. --cov-report=html:htmlcov tests/
+
+    - name: SCP Download Coverage Report
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        port: 22 # Adjust if your SSH port is different
+        source: "/home/${{ secrets.EC2_USER }}/github_actions_1/pytest.xml /home/${{ secrets.EC2_USER }}/github_actions_1/coverage.xml /home/${{ secrets.EC2_USER }}/github_actions_1/pytest-coverage.txt /home/${{ secrets.EC2_USER }}/github_actions_1/htmlcov/"
+        target: ./
+        strip_components: 1 # Remove the initial remote directory structure
+
+    - name: Archive HTML coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report-html
+        path: htmlcov/
+        retention-days: 7
+
+    - name: Comment on PR with coverage report
+      if: github.event_name == 'pull_request'  # Only run on pull requests
+      uses: MishaKav/pytest-coverage-comment@main
+      with:
+        pytest-coverage-path: ./pytest-coverage.txt
+        pytest-xml-coverage-path: ./coverage.xml
+        junitxml-path: ./pytest.xml
+        title: 'Calculator Project Coverage Report'
+        badge-title: 'Code Coverage'
+        hide-badge: false
+        hide-report: false
+        create-new-comment: false
+        report-only-changed-files: true
