@@ -21,7 +21,7 @@ jobs:
       with:
         fetch-depth: 0  # Fetch all history for all branches and tags
 
-    - name: Set up Python 3.10
+    - name: Set up Python 3.10 (locally on runner)
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
@@ -42,19 +42,30 @@ jobs:
           # Navigate to the project directory on EC2
           cd /home/${{ secrets.EC2_USER }}/github_actions_1
 
-          # Install dependencies on EC2
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Ensure Python 3 is available and in PATH (adjust command if needed)
+          if ! command -v python3 &> /dev/null; then
+            sudo apt update
+            sudo apt install -y python3 python3-pip
+          fi
+
+          # Ensure pip is up to date
+          python3 -m pip install --upgrade pip
+
+          # Install pytest and coverage if not already present
+          python3 -m pip install --upgrade pytest coverage
+
+          # Install project dependencies
+          if [ -f requirements.txt ]; then python3 -m pip install -r requirements.txt; fi
 
           # Run tests with pytest and generate coverage report
-          pytest --junitxml=pytest.xml \
-                --cov=. \
-                --cov-report=term-missing:skip-covered \
-                --cov-report=xml:coverage.xml \
-                tests/ | tee pytest-coverage.txt
+          python3 -m pytest --junitxml=pytest.xml \
+                 --cov=. \
+                 --cov-report=term-missing:skip-covered \
+                 --cov-report=xml:coverage.xml \
+                 tests/ | tee pytest-coverage.txt
 
           # Generate HTML coverage report
-          pytest --cov=. --cov-report=html:htmlcov tests/
+          python3 -m pytest --cov=. --cov-report=html:htmlcov tests/
 
     - name: SCP Download Coverage Report
       uses: appleboy/scp-action@master
