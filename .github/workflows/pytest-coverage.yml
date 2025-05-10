@@ -22,8 +22,8 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             sudo apt update
-            sudo apt install -y python3.10 python3.10-venv python3.10-distutils curl unzip
-            curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10
+            sudo apt install -y python3.10 python3.12-venv python3.12-distutils curl unzip
+            curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.12
 
             # Clone repo (or pull latest if exists)
             if [ ! -d "myproject" ]; then
