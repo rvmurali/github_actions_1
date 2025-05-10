@@ -1,4 +1,4 @@
-name: Run Python Tests on EC2
+name: Run Python Tests on EC2 via SSH
 
 on:
   push:
@@ -7,51 +7,41 @@ on:
     branches: [ main ]
 
 jobs:
-  deploy-and-test:
+  test-on-ec2:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Run commands on EC2 via SSH
+      - name: Run tests remotely on EC2
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-
-            # Update repo & install dependencies (if needed)
+            # Update and install required packages
             sudo apt update
             sudo apt install -y python3.12-venv git
 
-            # Set up virtual environment (best practice with Python 3.12)
+            # Set up Python 3.12 virtual environment
             python3.12 -m venv ~/venv
             source ~/venv/bin/activate
 
-            # Clone repo (or pull latest)
-            if [ ! -d "myproject" ]; then
-              git clone https://github.com/rvmurali/github_actions_1.git myproject
-            else
-              cd myproject && git pull
-            fi
+            # Clean and clone fresh copy of the repository
+            rm -rf github_actions_1
+            git clone https://github.com/${{ github.repository }}.git
+            cd github_actions_1 || { echo "❌ Failed to enter project directory"; exit 1; }
 
-            cd myproject
-
-            # Install pip inside venv (PEP 668 compliant)
+            # Install pip and dependencies inside the virtual environment
             curl -sS https://bootstrap.pypa.io/get-pip.py | python
-
-            # Install project dependencies
             pip install --upgrade pip
             if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
             # Run tests with coverage
             pytest --junitxml=pytest.xml \
-                  --cov=calculator \
-                  --cov-report=term-missing:skip-covered \
-                  --cov-report=xml:coverage.xml \
-                  tests/ | tee pytest-coverage.txt
+                   --cov=calculator \
+                   --cov-report=term-missing:skip-covered \
+                   --cov-report=xml:coverage.xml \
+                   tests/ | tee pytest-coverage.txt
 
             # Generate HTML coverage report
             pytest --cov=calculator --cov-report=html:htmlcov tests/
