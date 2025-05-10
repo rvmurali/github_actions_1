@@ -44,7 +44,7 @@ jobs:
         pytest --cov=calculator --cov-report=html:htmlcov tests/
     
     - name: Archive HTML coverage report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-report-html
         path: htmlcov/
