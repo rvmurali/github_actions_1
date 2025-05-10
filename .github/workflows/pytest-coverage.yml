@@ -1,4 +1,4 @@
-name: Run Python Tests on EC2 via SSH
+name: Python Tests with Coverage Report on EC2
 
 on:
   push:
@@ -6,42 +6,83 @@ on:
   pull_request:
     branches: [ main ]
 
+# Give the workflow the necessary permissions
+permissions:
+  contents: write
+  checks: write
+  pull-requests: write
+
 jobs:
-  test-on-ec2:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ubuntu-latest # Orchestrate from GitHub Actions runner
 
     steps:
-      - name: Run tests remotely on EC2
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            # Update and install required packages
-            sudo apt update
-            sudo apt install -y python3.12-venv git
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch all history for all branches and tags
 
-            # Set up Python 3.12 virtual environment
-            python3.12 -m venv ~/venv
-            source ~/venv/bin/activate
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
 
-            # Clean and clone fresh copy of the repository
-            rm -rf github_actions_1
-            git clone https://github.com/${{ github.repository }}.git
-            cd github_actions_1 || { echo "❌ Failed to enter project directory"; exit 1; }
+    - name: Install dependencies (locally on runner - might not be strictly necessary but good practice)
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-            # Install pip and dependencies inside the virtual environment
-            curl -sS https://bootstrap.pypa.io/get-pip.py | python
-            pip install --upgrade pip
-            if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: SSH and Run Tests on EC2
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        port: 22 # Adjust if your SSH port is different
+        script: |
+          # Navigate to the project directory on EC2
+          cd /home/${{ secrets.EC2_USER }}/github_actions_1
 
-            # Run tests with coverage
-            pytest --junitxml=pytest.xml \
-                   --cov=calculator \
-                   --cov-report=term-missing:skip-covered \
-                   --cov-report=xml:coverage.xml \
-                   tests/ | tee pytest-coverage.txt
+          # Install dependencies on EC2
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-            # Generate HTML coverage report
-            pytest --cov=calculator --cov-report=html:htmlcov tests/
+          # Run tests with pytest and generate coverage report
+          pytest --junitxml=pytest.xml \
+                --cov=. \
+                --cov-report=term-missing:skip-covered \
+                --cov-report=xml:coverage.xml \
+                tests/ | tee pytest-coverage.txt
+
+          # Generate HTML coverage report
+          pytest --cov=. --cov-report=html:htmlcov tests/
+
+    - name: SCP Download Coverage Report
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        port: 22 # Adjust if your SSH port is different
+        remote_file: "/home/${{ secrets.EC2_USER }}/github_actions_1/"
+        local_path: ./
+
+    - name: Archive HTML coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report-html
+        path: htmlcov/
+        retention-days: 7
+
+    - name: Comment on PR with coverage report
+      if: github.event_name == 'pull_request'  # Only run on pull requests
+      uses: MishaKav/pytest-coverage-comment@main
+      with:
+        pytest-coverage-path: ./pytest-coverage.txt
+        pytest-xml-coverage-path: ./coverage.xml
+        junitxml-path: ./pytest.xml
+        title: 'Calculator Project Coverage Report'
+        badge-title: 'Code Coverage'
+        hide-badge: false
+        hide-report: false
+        create-new-comment: false
+        report-only-changed-files: true
