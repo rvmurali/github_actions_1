@@ -1,38 +1,37 @@
-name: Pytest Coverage Report
+name: Pytest Coverage Comment
 
 on:
   pull_request:
     branches:
       - '*'
-  push:
-    branches:
-      - main
 
 permissions:
   contents: write
-  checks: write
   pull-requests: write
+  checks: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.10
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-cov
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run Pytest and generate coverage reports
+      - name: Run tests and generate coverage
         run: |
+          mkdir -p htmlcov
           pytest tests \
             --junitxml=pytest.xml \
             --cov=app \
@@ -41,7 +40,7 @@ jobs:
             > pytest-coverage.txt
 
       - name: Upload HTML coverage report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v3.1.3
         with:
           name: html-coverage-report
           path: htmlcov
@@ -51,37 +50,3 @@ jobs:
         with:
           pytest-coverage-path: ./pytest-coverage.txt
           junitxml-path: ./pytest.xml
-
-  update-readme:
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Re-run coverage to update README
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-cov
-          pytest tests --cov=app --cov-report=html > pytest-coverage.txt
-
-      - name: Generate hidden comment output
-        id: coverageComment
-        uses: MishaKav/pytest-coverage-comment@v1.1.54
-        with:
-          hide-comment: true
-          pytest-coverage-path: ./pytest-coverage.txt
-
-      - name: Update coverage in README.md
-        run: |
-          sed -i '/<!-- Pytest Coverage Comment:Begin -->/,/<!-- Pytest Coverage Comment:End -->/c\<!-- Pytest Coverage Comment:Begin -->\n${{ steps.coverageComment.outputs.coverageHtml }}\n<!-- Pytest Coverage Comment:End -->' README.md
-
-      - name: Commit & Push README update
-        uses: actions-js/push@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          message: Update coverage badge in README
